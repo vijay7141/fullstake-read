@@ -1,0 +1,134 @@
+// WhatsApp CRM Prisma Schema
+// Compatible with both SQLite and PostgreSQL
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  role         String   @default("ADMIN")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model WhatsAppAccount {
+  id                 String         @id @default(cuid())
+  displayName        String         // e.g. "Support Line 1", "Sales Line"
+  phoneNumber        String         // e.g. "+15551234567"
+  phoneNumberId      String         @unique // Meta Phone Number ID (from Meta Developer portal)
+  businessAccountId  String?        // Meta WhatsApp Business Account ID (WABA ID)
+  accessToken        String?        // Optional per-number token override (masked in UI)
+  status             String         @default("ACTIVE") // ACTIVE, INACTIVE, DISCONNECTED
+  isDefault          Boolean        @default(false)
+  qualityRating      String?        // GREEN, YELLOW, RED, UNKNOWN
+  webhookVerifiedAt  DateTime?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  conversations      Conversation[]
+  messages           Message[]
+
+  @@index([phoneNumber])
+  @@index([status])
+}
+
+model Customer {
+  id             String         @id @default(cuid())
+  phoneNumber    String         @unique // E.164 without symbols, e.g. "919876543210" or "15551234567"
+  formattedPhone String?        // Display format, e.g. "+91 98765 43210"
+  name           String?
+  avatarUrl      String?
+  notes          String?
+  tags           String?        // Comma separated e.g. "VIP, Lead, Support"
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  conversations  Conversation[]
+  messages       Message[]
+
+  @@index([phoneNumber])
+  @@index([name])
+}
+
+model Conversation {
+  id                   String           @id @default(cuid())
+  customerId           String
+  customer             Customer         @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  whatsappAccountId    String?
+  whatsappAccount      WhatsAppAccount? @relation(fields: [whatsappAccountId], references: [id], onDelete: SetNull)
+  status               String           @default("OPEN") // OPEN, RESOLVED, ARCHIVED
+  lastMessageAt        DateTime         @default(now())
+  lastMessageText      String?
+  lastMessageDirection String?          // INCOMING, OUTGOING
+  unreadCount          Int              @default(0)
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+
+  messages             Message[]
+
+  @@index([customerId])
+  @@index([whatsappAccountId])
+  @@index([lastMessageAt])
+  @@index([status])
+}
+
+model Message {
+  id                 String           @id @default(cuid())
+  whatsappMessageId  String?          @unique // Meta WhatsApp message id e.g. "wamid.HBg..."
+  conversationId     String
+  conversation       Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  customerId         String
+  customer           Customer         @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  whatsappAccountId  String?
+  whatsappAccount    WhatsAppAccount? @relation(fields: [whatsappAccountId], references: [id], onDelete: SetNull)
+  direction          String           // "INCOMING" | "OUTGOING"
+  messageType        String           @default("text") // "text", "image", "document", "audio", "video", "template", "reaction", "location"
+  text               String?
+  mediaUrl           String?
+  mediaType          String?
+  caption            String?
+  status             String           @default("SENT") // "SENDING", "SENT", "DELIVERED", "READ", "FAILED"
+  errorCode          String?
+  errorMessage       String?
+  rawPayload         String?          // Audit trail / Meta response payload
+  timestamp          DateTime         @default(now())
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  @@index([conversationId, timestamp])
+  @@index([customerId])
+  @@index([whatsappAccountId])
+  @@index([whatsappMessageId])
+  @@index([status])
+  @@index([timestamp])
+}
+
+model WebhookEvent {
+  id           String   @id @default(cuid())
+  eventId      String?  @unique // Idempotency check key (e.g. Meta msg ID or webhook entry hash)
+  eventType    String   // "messages", "statuses", "verification", "unknown"
+  payload      String   // Full raw JSON string
+  processed    Boolean  @default(false)
+  errorMessage String?
+  createdAt    DateTime @default(now())
+
+  @@index([eventId])
+  @@index([createdAt])
+}
+
+model SystemSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
